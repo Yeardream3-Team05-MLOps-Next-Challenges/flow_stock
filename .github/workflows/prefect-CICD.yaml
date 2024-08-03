@@ -1,0 +1,52 @@
+name: Prefect flow CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+
+jobs:
+
+  prefect-deploy:
+    name: Prefect Deploy
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        arch: [ arm64 ]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+
+      - name: Prefect Deploy
+        env:
+          PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
+          PREFECT_DEFAULT_DOCKER_BUILD_NAMESPACE: ${{ secrets.PREFECT_DOCKER_NAMESPACE }}
+          APP_KEY: ${{ secrets.APP_KEY }} 
+          APP_SECRET: ${{ secrets.APP_SECRET }} 
+          HTS_ID: ${{ secrets.HTS_ID }} 
+          KAFKA_URL: ${{ secrets.KAFKA_URL }} 
+        run: |
+          pip install -r requirements.txt
+          python deploy.py
+
+      - name: action-slack
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          author_name: Gibhub Actions - post-deploy
+          fields: repo,commit,message,author # action,eventName,ref,workflow,job,took 추가할 수 있음
+          mention: here
+          if_mention: failure,cancelled
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }} # required
+        if: always() # Pick up events even if the job fails or is canceled
