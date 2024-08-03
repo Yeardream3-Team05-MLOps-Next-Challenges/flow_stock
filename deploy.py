@@ -1,5 +1,6 @@
 import os
 import logging
+import traceback
 
 from prefect import flow
 from prefect.deployments import DeploymentImage
@@ -58,3 +59,4 @@ if __name__ == "__main__":
         print(f"Prefect error: {e}")
     except Exception as e:
         print(f"Unexpected error: {e}")
+        print(traceback.format_exc())
