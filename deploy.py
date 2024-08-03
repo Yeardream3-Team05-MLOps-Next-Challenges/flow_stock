@@ -8,7 +8,7 @@ from prefect.deployments import DeploymentImage
 from prefect.client.schemas.schedules import CronSchedule
 
 # stock.py의 함수와 태스크를 가져옵니다.
-from ttgit.stock.flow import hun_fetch_and_send_stock_data
+from flow import hun_fetch_and_send_stock_data
 
 # @flow(name="fetch_and_send_stock_data_flow", log_prints=True)
 # async def hun_stock_flow():
