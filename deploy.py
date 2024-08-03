@@ -35,7 +35,7 @@ from flow import hun_fetch_and_send_stock_data
 
 if __name__ == "__main__":
     hun_fetch_and_send_stock_data.deploy(
-        name="hun-stock-deployment",
+        name="hun_tick2min_deploy",
         work_pool_name="docker-agent-pool",
         work_queue_name="docker-agent",
         image=DeploymentImage(
@@ -44,11 +44,11 @@ if __name__ == "__main__":
             dockerfile="Dockerfile",
             platform="linux/arm64",
             buildargs={
-                "APP_KEY": os.getenv("APP_KEY"),
-                "APP_SECRET": os.getenv("APP_SECRET"),
-                "HTS_ID": os.getenv("HTS_ID"),
-                "KAFKA_URL": os.getenv("KAFKA_URL"),
-            },
+                        "APP_KEY": os.getenv("APP_KEY"),
+                        "APP_SECRET": os.getenv("APP_SECRET"),
+                        "HTS_ID": os.getenv("HTS_ID"),
+                        "KAFKA_URL": os.getenv("KAFKA_URL"),
+                        },
         ),
         schedule=(CronSchedule(cron="0 8 * * *", timezone="Asia/Seoul")),
         build=True,
