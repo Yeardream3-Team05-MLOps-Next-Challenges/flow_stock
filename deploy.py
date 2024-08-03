@@ -31,7 +31,6 @@ from flow import hun_fetch_and_send_stock_data
 #     # 응답 상태 코드 출력
 #     print('응답 상태 코드:', response.status_code)
 #     print('응답 내용:', response.text)
-
 if __name__ == "__main__":
     hun_fetch_and_send_stock_data.deploy(
         name="hun_tick2min_deploy",
@@ -39,7 +38,7 @@ if __name__ == "__main__":
         work_queue_name="docker-agent",
         image=DeploymentImage(
             name="hun-stock",
-            tag="0.1.0",
+            tag="0.1.1",
             dockerfile="Dockerfile",
             platform="linux/arm64",
             buildargs={
