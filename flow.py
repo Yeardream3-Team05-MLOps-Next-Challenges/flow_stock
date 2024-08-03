@@ -134,10 +134,14 @@ async def shutdown_at_8pm():
     os._exit(0)
 
 @flow(name="hun_fetch_and_send_stock_data")
-async def hun_fetch_and_send_stock_data():
+def hun_fetch_and_send_stock_data():
+    asyncio.run(async_main())
+
+async def async_main():
     connect_task = asyncio.create_task(run_connect())
     shutdown_task = asyncio.create_task(shutdown_at_8pm())
     await asyncio.gather(connect_task, shutdown_task)
 
 if __name__ == "__main__":
-    asyncio.run(hun_fetch_and_send_stock_data())
+    asyncio.run(async_main())
+
