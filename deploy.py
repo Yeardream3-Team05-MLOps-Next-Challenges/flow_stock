@@ -33,7 +33,7 @@ from flow import hun_fetch_and_send_stock_data
 #     print('응답 내용:', response.text)
 if __name__ == "__main__":
     hun_fetch_and_send_stock_data.deploy(
-        name="hun_tick2min_deploy",
+        name="hun_stock_deploy",
         work_pool_name="docker-agent-pool",
         work_queue_name="docker-agent",
         image=DeploymentImage(
