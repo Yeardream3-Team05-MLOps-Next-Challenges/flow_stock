@@ -41,6 +41,7 @@ if __name__ == "__main__":
         image=DeploymentImage(
             name="hun-stock",
             tag="0.1.0",
+            dockerfile="Dockerfile",
             platform="linux/arm64",
             buildargs={
                 "APP_KEY": os.getenv("APP_KEY"),
