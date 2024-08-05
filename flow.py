@@ -10,24 +10,12 @@ import pytz
 from prefect import task, flow
 
 
-# 환경 변수
-APP_KEY = os.getenv('APP_KEY', 'default_url')
-APP_SECRET = os.getenv('APP_SECRET', 'default_url')
-HTS_ID = os.getenv('HTS_ID', 'default_url')
-KAFKA_URL = os.getenv('KAFKA_URL', 'default_url')
-
-
-# 로깅 기본 설정: 로그 레벨, 로그 파일 경로 및 형식 설정
-logging.basicConfig(level=logging.DEBUG, filename='app0416.log', filemode='a', format='%(name)s - %(levelname)s - %(message)s')
-
-producer = None  # 글로벌 프로듀서 변수
-
 def setup_kafka_producer():
     global producer
     try:
         producer = KafkaProducer(acks=0,
                                  compression_type='gzip',
-                                 bootstrap_servers=KAFKA_URL,
+                                 bootstrap_servers=os.getenv('KAFKA_URL', 'default_url'),
                                  value_serializer=lambda x: json.dumps(x).encode('utf-8'),
                                  api_version=(2,)
                                  )
@@ -39,10 +27,10 @@ def setup_kafka_producer():
 def get_config():
     logging.info('get_config 호출됨')
     return {
-        "appkey": APP_KEY,
-        "appsecret": APP_SECRET,
-        "htsid": HTS_ID,
-        "kafka_topic": "stock_data_action",
+        "appkey": os.getenv('APP_KEY', 'default_url'),
+        "appsecret": os.getenv('APP_SECRET', 'default_url'),
+        "htsid": os.getenv('HTS_ID', 'default_url'),
+        "kafka_topic": "tt_tick",
     }
 
 def get_approval(key, secret):
@@ -133,11 +121,15 @@ async def shutdown_at_8pm():
     logging.info("한국 시간 오후 8시가 되어 프로그램을 종료합니다.")
     os._exit(0)
 
-@flow(name="hun_fetch_and_send_stock_data")
-def hun_fetch_and_send_stock_data():
+@flow(name="hun_fetch_and_send_stock_flow")
+def hun_fetch_and_send_stock_flow():
     asyncio.run(async_main())
 
 async def async_main():
+    
+    # 로깅 기본 설정: 로그 레벨, 로그 파일 경로 및 형식 설정
+    logging.basicConfig(level=logging.DEBUG, filename='app0416.log', filemode='a', format='%(name)s - %(levelname)s - %(message)s')
+
     connect_task = asyncio.create_task(run_connect())
     shutdown_task = asyncio.create_task(shutdown_at_8pm())
     await asyncio.gather(connect_task, shutdown_task)

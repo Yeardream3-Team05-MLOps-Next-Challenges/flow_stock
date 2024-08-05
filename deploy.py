@@ -6,7 +6,7 @@ from prefect import flow
 from prefect.deployments import DeploymentImage
 from prefect.client.schemas.schedules import CronSchedule
 
-from flow import hun_fetch_and_send_stock_data
+from flow import hun_fetch_and_send_stock_flow
 
 
 # @flow(name="fetch_and_send_stock_data_flow", log_prints=True)
@@ -32,13 +32,13 @@ from flow import hun_fetch_and_send_stock_data
 #     print('응답 상태 코드:', response.status_code)
 #     print('응답 내용:', response.text)
 if __name__ == "__main__":
-    hun_fetch_and_send_stock_data.deploy(
+    hun_fetch_and_send_stock_flow.deploy(
         name="hun_stock_deploy",
         work_pool_name="docker-agent-pool",
         work_queue_name="docker-agent",
         image=DeploymentImage(
             name="hun-stock",
-            tag="0.1.1",
+            tag="0.1.2",
             dockerfile="Dockerfile",
             platform="linux/arm64",
             buildargs={
