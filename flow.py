@@ -10,7 +10,9 @@ import pytz
 from prefect import task, flow
 
 
-def setup_kafka_producer(producer):
+def setup_kafka_producer():
+    global producer 
+
     try:
         producer = KafkaProducer(acks=0,
                                  compression_type='gzip',
@@ -19,7 +21,6 @@ def setup_kafka_producer(producer):
                                  api_version=(2,)
                                  )
         logging.info('Kafka Producer 설정: acks=0, compression type=gzip, bootstrap_servers')
-        return producer
     except Exception as e:
         logging.error(f"Kafka Producer 설정 중 오류 발생: {e}")
         raise
@@ -45,10 +46,8 @@ def get_approval(key, secret):
     return approval_key
 
 async def send_to_kafka(data):
+    global producer
 
-    if 'producer' not in locals():
-        producer = None
-        
     if producer is None:
         setup_kafka_producer()
     logging.info('kafka로 전송 시작')
@@ -133,6 +132,10 @@ async def async_main():
     
     # 로깅 기본 설정: 로그 레벨, 로그 파일 경로 및 형식 설정
     logging.basicConfig(level=logging.DEBUG, filename='app0416.log', filemode='a', format='%(name)s - %(levelname)s - %(message)s')
+
+    if 'producer' not in globals():
+        global producer
+        producer = None
 
     connect_task = asyncio.create_task(run_connect())
     shutdown_task = asyncio.create_task(shutdown_at_8pm())
