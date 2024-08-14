@@ -115,14 +115,20 @@ async def run_connect():
 
 @task
 async def shutdown_at_8pm():
-    kst = pytz.timezone('Asia/Seoul')
-    now = datetime.datetime.now(kst)
-    target_time = now.replace(hour=20, minute=0, second=0, microsecond=0)
-    if now < target_time:
-        wait_seconds = (target_time - now).total_seconds()
-        await asyncio.sleep(wait_seconds)
-    logging.info("한국 시간 오후 8시가 되어 프로그램을 종료합니다.")
-    os._exit(0)
+    try:
+        kst = pytz.timezone('Asia/Seoul')
+        now = datetime.datetime.now(kst)
+        logging.info(f"현재 시간: {now}")
+        target_time = now.replace(hour=20, minute=0, second=0, microsecond=0)
+        if now < target_time:
+            wait_seconds = (target_time - now).total_seconds()
+            logging.info(f"8PM KST까지 {wait_seconds}초 대기 중")
+            await asyncio.sleep(wait_seconds)
+        logging.info("한국 시간 오후 8시가 되어 프로그램을 종료합니다.")
+        return True  # 종료 신호 반환
+    except Exception as e:
+        logging.error(f"shutdown_at_8pm에서 오류 발생: {e}")
+        raise
 
 @flow(name="hun_fetch_and_send_stock_flow")
 def hun_fetch_and_send_stock_flow():
@@ -139,8 +145,20 @@ async def async_main():
 
     connect_task = asyncio.create_task(run_connect())
     shutdown_task = asyncio.create_task(shutdown_at_8pm())
-    await asyncio.gather(connect_task, shutdown_task)
-
+    
+    done, pending = await asyncio.wait(
+        [connect_task, shutdown_task],
+        return_when=asyncio.FIRST_COMPLETED
+    )
+    
+    for task in pending:
+        task.cancel()
+    
+    if shutdown_task in done:
+        logging.info("8PM에 도달하여 프로그램을 종료합니다.")
+    else:
+        logging.info("예상치 못한 이유로 프로그램이 종료됩니다.")
+        
 if __name__ == "__main__":
     asyncio.run(async_main())
 
