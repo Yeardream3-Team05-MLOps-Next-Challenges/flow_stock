@@ -130,35 +130,36 @@ async def shutdown_at_8pm():
         logging.error(f"shutdown_at_8pm에서 오류 발생: {e}")
         raise
 
-@flow(name="hun_fetch_and_send_stock_flow")
+
 def hun_fetch_and_send_stock_flow():
-    asyncio.run(async_main())
+    async def async_flow():
+        logging.basicConfig(level=logging.INFO, filename='app0416.log', filemode='a', format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-async def async_main():
-    
-    # 로깅 기본 설정: 로그 레벨, 로그 파일 경로 및 형식 설정
-    logging.basicConfig(level=logging.DEBUG, filename='app0416.log', filemode='a', format='%(name)s - %(levelname)s - %(message)s')
+        if 'producer' not in globals():
+            global producer
+            producer = None
 
-    if 'producer' not in globals():
-        global producer
-        producer = None
-
-    connect_task = asyncio.create_task(run_connect())
-    shutdown_task = asyncio.create_task(shutdown_at_8pm())
-    
-    done, pending = await asyncio.wait(
-        [connect_task, shutdown_task],
-        return_when=asyncio.FIRST_COMPLETED
-    )
-    
-    for task in pending:
-        task.cancel()
-    
-    if shutdown_task in done:
-        logging.info("8PM에 도달하여 프로그램을 종료합니다.")
-    else:
-        logging.info("예상치 못한 이유로 프로그램이 종료됩니다.")
+        connect_task = asyncio.create_task(run_connect())
+        shutdown_task = asyncio.create_task(shutdown_at_8pm())
         
+        while True:
+            done, pending = await asyncio.wait(
+                [connect_task, shutdown_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            if shutdown_task in done:
+                logging.info("8PM에 도달하여 프로그램을 종료합니다.")
+                for task in pending:
+                    task.cancel()
+                break
+        
+        if producer:
+            producer.close()
+
+    asyncio.run(async_flow())
+
+
 if __name__ == "__main__":
-    asyncio.run(async_main())
+   hun_fetch_and_send_stock_flow() 
 
