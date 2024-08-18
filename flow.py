@@ -130,7 +130,7 @@ async def shutdown_at_8pm():
         logging.error(f"shutdown_at_8pm에서 오류 발생: {e}")
         raise
 
-
+@flow
 def hun_fetch_and_send_stock_flow():
     async def async_flow():
         logging.basicConfig(level=logging.INFO, filename='app0416.log', filemode='a', format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
