@@ -142,17 +142,15 @@ def hun_fetch_and_send_stock_flow():
         connect_task = asyncio.create_task(run_connect())
         shutdown_task = asyncio.create_task(shutdown_at_8pm())
         
-        while True:
-            done, pending = await asyncio.wait(
-                [connect_task, shutdown_task],
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            
-            if shutdown_task in done:
-                logging.info("8PM에 도달하여 프로그램을 종료합니다.")
-                for task in pending:
-                    task.cancel()
-                break
+        done, pending = await asyncio.wait(
+            [connect_task, shutdown_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        if shutdown_task in done:
+            logging.info("8PM에 도달하여 프로그램을 종료합니다.")
+            for task in pending:
+                task.cancel()
         
         if producer:
             producer.close()
