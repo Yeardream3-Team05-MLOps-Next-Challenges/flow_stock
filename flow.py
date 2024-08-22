@@ -123,7 +123,7 @@ async def shutdown_at_8pm(shutdown_event):
         kst = pytz.timezone('Asia/Seoul')
         now = datetime.datetime.now(kst)
         logging.info(f"현재 시간: {now}")
-        target_time = now.replace(hour=1, minute=40, second=0, microsecond=0)
+        target_time = now.replace(hour=20, minute=0, second=0, microsecond=0)
         if now < target_time:
             wait_seconds = (target_time - now).total_seconds()
             logging.info(f"8PM KST까지 {wait_seconds}초 대기 중")
