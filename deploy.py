@@ -38,7 +38,7 @@ if __name__ == "__main__":
         work_queue_name="docker-agent",
         image=DeploymentImage(
             name="hun-stock",
-            tag="0.1.11",
+            tag="0.1.12",
             dockerfile="Dockerfile",
             platform="linux/arm64",
             buildargs={
@@ -48,6 +48,6 @@ if __name__ == "__main__":
                         "KAFKA_URL": os.getenv("KAFKA_URL"),
                         },
         ),
-        schedule=(CronSchedule(cron="0 8 * * *", timezone="Asia/Seoul")),
+        schedule=(CronSchedule(cron="0 8 * * 1-5", timezone="Asia/Seoul")),
         build=True,
     )
