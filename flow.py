@@ -115,7 +115,12 @@ async def connect(shutdown_event):
             
 @task
 async def run_connect(shutdown_event):
-    await connect(shutdown_event)
+    try:
+        await connect(shutdown_event)
+    except Exception as e:
+        logging.error(f"run_connect 태스크 실행 중 오류 발생: {e}")
+    finally:
+        shutdown_event.set() 
 
 @task
 async def shutdown_at_8pm(shutdown_event):
@@ -133,12 +138,13 @@ async def shutdown_at_8pm(shutdown_event):
 
     except Exception as e:
         logging.error(f"shutdown_at_8pm에서 오류 발생: {e}")
-        raise
+        shutdown_event.set()
 
 @flow
 def hun_fetch_and_send_stock_flow():
     async def async_flow():
-        logging.basicConfig(level=logging.INFO, filename='app0416.log', filemode='a', format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        log_level = os.getenv('LOG_LEVEL', 'INFO')
+        logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
         if 'producer' not in globals():
             global producer
