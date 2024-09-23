@@ -38,7 +38,7 @@ if __name__ == "__main__":
         work_queue_name="docker-agent",
         image=DeploymentImage(
             name="hun-stock",
-            tag="0.1.12",
+            tag="0.1.17",
             dockerfile="Dockerfile",
             platform="linux/arm64",
             buildargs={

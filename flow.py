@@ -9,9 +9,18 @@ import datetime
 import pytz
 from prefect import task, flow
 
+# 로깅 설정
+def get_logger():
+    try:
+        return get_run_logger()
+    except Exception:
+        logging.basicConfig(level=logging.INFO)
+        return logging.getLogger(__name__)
+logger = get_logger()
 
 def setup_kafka_producer():
     global producer 
+    global logger
 
     try:
         producer = KafkaProducer(acks=0,
@@ -20,13 +29,14 @@ def setup_kafka_producer():
                                  value_serializer=lambda x: json.dumps(x).encode('utf-8'),
                                  api_version=(2,)
                                  )
-        logging.info('Kafka Producer 설정: acks=0, compression type=gzip, bootstrap_servers')
+        logger.info('Kafka Producer 설정: acks=0, compression type=gzip, bootstrap_servers')
     except Exception as e:
-        logging.error(f"Kafka Producer 설정 중 오류 발생: {e}")
+        logger.error(f"Kafka Producer 설정 중 오류 발생: {e}")
         raise
 
 def get_config():
-    logging.info('get_config 호출됨')
+    global logger
+    logger.info('get_config 호출됨')
     return {
         "appkey": os.getenv('APP_KEY', 'default_url'),
         "appsecret": os.getenv('APP_SECRET', 'default_url'),
@@ -35,7 +45,9 @@ def get_config():
     }
 
 def get_approval(key, secret):
-    logging.info('get_approval 호출됨')
+    global logger
+    logger.info('get_approval 호출됨')
+
     url = 'https://openapivts.koreainvestment.com:29443'
     headers = {"content-type": "application/json"}
     body = {"grant_type": "client_credentials", "appkey": key, "secretkey": secret}
@@ -47,28 +59,32 @@ def get_approval(key, secret):
 
 async def send_to_kafka(data):
     global producer
+    global logger
 
     if producer is None:
         setup_kafka_producer()
-    logging.info('kafka로 전송 시작')
+    logger.info('kafka로 전송 시작')
     current_date = datetime.datetime.now().strftime("%Y%m%d")  # 현재 날짜를 YYYYMMDD 형식으로 가져옴
     data['날짜'] = current_date  # 데이터 사전에 날짜 키를 추가
     producer.send(get_config()["kafka_topic"], value=data)
-    logging.info('kafka로 데이터 전송 완료')
+    logger.info('kafka로 데이터 전송 완료')
 
 async def stockhoka(data):
-    logging.info('stockhoka 처리 시작')
+    global logger
+
+    logger.info('stockhoka 처리 시작')
     recvvalue = data.split('^')
     await send_to_kafka({
         "종목코드": recvvalue[0],
         "현재가": recvvalue[3],
         "현재시간": recvvalue[1],
     })
-    logging.info('stockhoka 처리 완료')
+    logger.info('stockhoka 처리 완료')
 
 async def connect(shutdown_event):
+    global logger
     try:
-        logging.info('websocket 연결 시작')
+        logger.info('websocket 연결 시작')
         config = get_config()
         g_approval_key = get_approval(config["appkey"], config["appsecret"])
         print(f"approval_key: {g_approval_key}")
@@ -98,16 +114,16 @@ async def connect(shutdown_event):
                         jsonObject = json.loads(data)
                         trid = jsonObject["header"]["tr_id"]
                         if trid == "PINGPONG":
-                            logging.debug(f"### RECV [PINGPONG] [{data}]")
-                            logging.debug(f"### SEND [PINGPONG] [{data}]")
+                            logger.debug(f"### RECV [PINGPONG] [{data}]")
+                            logger.debug(f"### SEND [PINGPONG] [{data}]")
                             await ws.send(data)  # PINGPONG 메시지 응답
                 except asyncio.TimeoutError:
                     continue
                 except websockets.ConnectionClosed:
                     break
-        logging.info('websocket 연결 종료')
+        logger.info('websocket 연결 종료')
     except Exception as e:
-        logging.error(f"connect 중 오류 발생: {e}")
+        logger.error(f"connect 중 오류 발생: {e}")
         raise
     finally:
         if producer:
@@ -115,36 +131,39 @@ async def connect(shutdown_event):
             
 @task
 async def run_connect(shutdown_event):
+    global logger
     try:
         await connect(shutdown_event)
     except Exception as e:
-        logging.error(f"run_connect 태스크 실행 중 오류 발생: {e}")
+        logger.error(f"run_connect 태스크 실행 중 오류 발생: {e}")
     finally:
         shutdown_event.set() 
 
 @task
 async def shutdown_at_8pm(shutdown_event):
+    global logger
     try:
         kst = pytz.timezone('Asia/Seoul')
         now = datetime.datetime.now(kst)
-        logging.info(f"현재 시간: {now}")
+        logger.info(f"현재 시간: {now}")
         target_time = now.replace(hour=20, minute=0, second=0, microsecond=0)
         if now < target_time:
             wait_seconds = (target_time - now).total_seconds()
-            logging.info(f"8PM KST까지 {wait_seconds}초 대기 중")
+            logger.info(f"8PM KST까지 {wait_seconds}초 대기 중")
             await asyncio.sleep(wait_seconds)
-        logging.info("한국 시간 오후 8시가 되어 프로그램을 종료합니다.")
+        logger.info("한국 시간 오후 8시가 되어 프로그램을 종료합니다.")
         shutdown_event.set()  # 종료 이벤트 설정
 
     except Exception as e:
-        logging.error(f"shutdown_at_8pm에서 오류 발생: {e}")
+        logger.error(f"shutdown_at_8pm에서 오류 발생: {e}")
         shutdown_event.set()
 
 @flow
 def hun_fetch_and_send_stock_flow():
+    global logger
     async def async_flow():
-        log_level = os.getenv('LOG_LEVEL', 'INFO')
-        logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        #log_level = os.getenv('LOG_LEVEL', 'INFO')
+        #logger.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
         if 'producer' not in globals():
             global producer
@@ -156,7 +175,7 @@ def hun_fetch_and_send_stock_flow():
         
         await asyncio.gather(connect_task, shutdown_task)
         
-        logging.info("모든 작업이 종료되었습니다.")
+        logger.info("모든 작업이 종료되었습니다.")
 
     asyncio.run(async_flow())
 
