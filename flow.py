@@ -7,20 +7,30 @@ from kafka import KafkaProducer
 import logging
 import datetime
 import pytz
-from prefect import task, flow
+from prefect import task, flow, get_run_logger
+
+# Prefect 환경 여부를 확인하는 함수
+def is_prefect_env():
+    try:
+        get_run_logger()
+        return True
+    except Exception:
+        return False
 
 # 로깅 설정
+if not is_prefect_env():
+    logging.basicConfig(level=logging.INFO)
+
+
 def get_logger():
-    try:
+    if is_prefect_env():
         return get_run_logger()
-    except Exception:
-        logging.basicConfig(level=logging.INFO)
+    else:
         return logging.getLogger(__name__)
-logger = get_logger()
 
 def setup_kafka_producer():
     global producer 
-    global logger
+    logger = get_logger()
 
     try:
         producer = KafkaProducer(acks=0,
@@ -35,7 +45,7 @@ def setup_kafka_producer():
         raise
 
 def get_config():
-    global logger
+    logger = get_logger()
     logger.info('get_config 호출됨')
     return {
         "appkey": os.getenv('APP_KEY', 'default_url'),
@@ -45,7 +55,7 @@ def get_config():
     }
 
 def get_approval(key, secret):
-    global logger
+    logger = get_logger()
     logger.info('get_approval 호출됨')
 
     url = 'https://openapivts.koreainvestment.com:29443'
@@ -59,7 +69,7 @@ def get_approval(key, secret):
 
 async def send_to_kafka(data):
     global producer
-    global logger
+    logger = get_logger()
 
     if producer is None:
         setup_kafka_producer()
@@ -70,7 +80,7 @@ async def send_to_kafka(data):
     logger.info('kafka로 데이터 전송 완료')
 
 async def stockhoka(data):
-    global logger
+    logger = get_logger()
 
     logger.info('stockhoka 처리 시작')
     recvvalue = data.split('^')
@@ -82,7 +92,7 @@ async def stockhoka(data):
     logger.info('stockhoka 처리 완료')
 
 async def connect(shutdown_event):
-    global logger
+    logger = get_logger()
     try:
         logger.info('websocket 연결 시작')
         config = get_config()
@@ -131,7 +141,7 @@ async def connect(shutdown_event):
             
 @task
 async def run_connect(shutdown_event):
-    global logger
+    logger = get_logger()
     try:
         await connect(shutdown_event)
     except Exception as e:
@@ -141,7 +151,7 @@ async def run_connect(shutdown_event):
 
 @task
 async def shutdown_at_8pm(shutdown_event):
-    global logger
+    logger = get_logger()
     try:
         kst = pytz.timezone('Asia/Seoul')
         now = datetime.datetime.now(kst)
@@ -160,8 +170,8 @@ async def shutdown_at_8pm(shutdown_event):
 
 @flow
 def hun_fetch_and_send_stock_flow():
-    global logger
     async def async_flow():
+        logger = get_logger()
         #log_level = os.getenv('LOG_LEVEL', 'INFO')
         #logger.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
