@@ -29,6 +29,7 @@ jobs:
 
       - name: Prefect Deploy
         env:
+          LOGGING_LEVEL: ${{ vars.LOGGING_LEVEL}}
           PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
           PREFECT_DEFAULT_DOCKER_BUILD_NAMESPACE: ${{ secrets.PREFECT_DOCKER_NAMESPACE }}
           APP_KEY: ${{ secrets.APP_KEY }} 

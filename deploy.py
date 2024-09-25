@@ -38,10 +38,11 @@ if __name__ == "__main__":
         work_queue_name="docker-agent",
         image=DeploymentImage(
             name="hun-stock",
-            tag="0.1.18",
+            tag="0.1.19",
             dockerfile="Dockerfile",
             platform="linux/arm64",
             buildargs={
+                        "LOGGING_LEVEL": os.getenv("LOGGING_LEVEL"),
                         "APP_KEY": os.getenv("APP_KEY"),
                         "APP_SECRET": os.getenv("APP_SECRET"),
                         "HTS_ID": os.getenv("HTS_ID"),
