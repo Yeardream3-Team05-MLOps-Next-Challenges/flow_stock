@@ -19,9 +19,8 @@ def is_prefect_env():
 
 # 로깅 설정
 if not is_prefect_env():
-    l_level = getattr(logging, os.getenv('PREFECT_LOGGING_LEVEL'), logging.INFO)
+    l_level = getattr(logging, os.getenv('LOGGING_LEVEL'), logging.INFO)
     logging.basicConfig(level=l_level)
-
 
 def get_logger():
     if is_prefect_env():
