@@ -39,14 +39,14 @@ def setup_kafka_producer():
                                  value_serializer=lambda x: json.dumps(x).encode('utf-8'),
                                  api_version=(2,)
                                  )
-        logger.info('Kafka Producer 설정: acks=0, compression type=gzip, bootstrap_servers')
+        logger.debug('Kafka Producer 설정: acks=0, compression type=gzip, bootstrap_servers')
     except Exception as e:
         logger.error(f"Kafka Producer 설정 중 오류 발생: {e}")
         raise
 
 def get_config():
     logger = get_logger()
-    logger.info('get_config 호출됨')
+    logger.debug('get_config 호출됨')
     return {
         "appkey": os.getenv('APP_KEY', 'default_url'),
         "appsecret": os.getenv('APP_SECRET', 'default_url'),
@@ -56,7 +56,7 @@ def get_config():
 
 def get_approval(key, secret):
     logger = get_logger()
-    logger.info('get_approval 호출됨')
+    logger.debug('get_approval 호출됨')
 
     url = 'https://openapivts.koreainvestment.com:29443'
     headers = {"content-type": "application/json"}
@@ -73,31 +73,31 @@ async def send_to_kafka(data):
 
     if producer is None:
         setup_kafka_producer()
-    logger.info('kafka로 전송 시작')
+    logger.debug('kafka로 전송 시작')
     current_date = datetime.datetime.now().strftime("%Y%m%d")  # 현재 날짜를 YYYYMMDD 형식으로 가져옴
     data['날짜'] = current_date  # 데이터 사전에 날짜 키를 추가
     producer.send(get_config()["kafka_topic"], value=data)
-    logger.info('kafka로 데이터 전송 완료')
+    logger.debug('kafka로 데이터 전송 완료')
 
 async def stockhoka(data):
     logger = get_logger()
 
-    logger.info('stockhoka 처리 시작')
+    logger.debug('stockhoka 처리 시작')
     recvvalue = data.split('^')
     await send_to_kafka({
         "종목코드": recvvalue[0],
         "현재가": recvvalue[3],
         "현재시간": recvvalue[1],
     })
-    logger.info('stockhoka 처리 완료')
+    logger.debug('stockhoka 처리 완료')
 
 async def connect(shutdown_event):
     logger = get_logger()
     try:
-        logger.info('websocket 연결 시작')
+        logger.debug('websocket 연결 시작')
         config = get_config()
         g_approval_key = get_approval(config["appkey"], config["appsecret"])
-        print(f"approval_key: {g_approval_key}")
+        #print(f"approval_key: {g_approval_key}")
 
         url = 'ws://ops.koreainvestment.com:31000'
         code_list = [
@@ -131,7 +131,7 @@ async def connect(shutdown_event):
                     continue
                 except websockets.ConnectionClosed:
                     break
-        logger.info('websocket 연결 종료')
+        logger.debug('websocket 연결 종료')
     except Exception as e:
         logger.error(f"connect 중 오류 발생: {e}")
         raise
