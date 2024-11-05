@@ -126,7 +126,7 @@ async def connect(shutdown_event):
 
             while not shutdown_event.is_set():
                 try:
-                    data = await asyncio.wait_for(ws.recv(), timeout=1)  # 타임아웃 설정
+                    data = await asyncio.wait_for(ws.recv(), timeout=1)
                     if data[0] in ['0', '1']:
                         recvstr = data.split('|')
                         trid0 = recvstr[1]
@@ -140,9 +140,14 @@ async def connect(shutdown_event):
                             logger.debug(f"### SEND [PINGPONG] [{data}]")
                             await ws.send(data)
                 except asyncio.TimeoutError:
-                    # 타임아웃 발생 시 shutdown_event 확인 후 계속 진행
                     continue
+                except asyncio.CancelledError:
+                    logger.info("connect task cancelled")
+                    break
                 except websockets.ConnectionClosed:
+                    break
+                except Exception as e:
+                    logger.error(f"connect 중 오류 발생: {e}")
                     break
         logger.debug('websocket 연결 종료')
     except Exception as e:
@@ -151,7 +156,7 @@ async def connect(shutdown_event):
     finally:
         if producer:
             producer.close()
-            
+             
 @task
 async def run_connect(shutdown_event):
     logger = get_logger()
@@ -196,8 +201,14 @@ def hun_fetch_and_send_stock_flow():
         connect_task = asyncio.create_task(run_connect(shutdown_event))
         shutdown_task = asyncio.create_task(shutdown_at_8pm(shutdown_event))
         
-        await asyncio.gather(connect_task, shutdown_task)
-        
+        await asyncio.wait([connect_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED)
+
+        connect_task.cancel()
+        try:
+            await connect_task
+        except asyncio.CancelledError:
+            logger.info("connect_task has been cancelled.")
+
         logger.info("모든 작업이 종료되었습니다.")
 
     asyncio.run(async_flow())
