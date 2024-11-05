@@ -97,7 +97,6 @@ async def connect(shutdown_event):
         logger.debug('websocket 연결 시작')
         config = get_config()
         g_approval_key = get_approval(config["appkey"], config["appsecret"])
-        #print(f"approval_key: {g_approval_key}")
 
         url = 'ws://ops.koreainvestment.com:31000'
         code_list = [
@@ -105,7 +104,20 @@ async def connect(shutdown_event):
             ['1', 'H0STASP0', '051910'],
             ['1', 'H0STASP0', '000660'],
         ]
-        senddata_list = [json.dumps({"header": {"approval_key": g_approval_key, "custtype": "P", "tr_type": i, "content-type": "utf-8"}, "body": {"input": {"tr_id": j, "tr_key": k}}}) for i, j, k in code_list]
+        senddata_list = [json.dumps({
+            "header": {
+                "approval_key": g_approval_key,
+                "custtype": "P",
+                "tr_type": i,
+                "content-type": "utf-8"
+            },
+            "body": {
+                "input": {
+                    "tr_id": j,
+                    "tr_key": k
+                }
+            }
+        }) for i, j, k in code_list]
 
         async with websockets.connect(url, ping_interval=None) as ws:
             for senddata in senddata_list:
@@ -114,20 +126,21 @@ async def connect(shutdown_event):
 
             while not shutdown_event.is_set():
                 try:
-                    data = await ws.recv()
+                    data = await asyncio.wait_for(ws.recv(), timeout=1)  # 타임아웃 설정
                     if data[0] in ['0', '1']:
                         recvstr = data.split('|')
                         trid0 = recvstr[1]
                         if trid0 == "H0STASP0":
                             await stockhoka(recvstr[3])
-                    else:  # 웹소켓 세션 유지를 위한 PINGPONG 메시지 처리
+                    else:
                         jsonObject = json.loads(data)
                         trid = jsonObject["header"]["tr_id"]
                         if trid == "PINGPONG":
                             logger.debug(f"### RECV [PINGPONG] [{data}]")
                             logger.debug(f"### SEND [PINGPONG] [{data}]")
-                            await ws.send(data)  # PINGPONG 메시지 응답
+                            await ws.send(data)
                 except asyncio.TimeoutError:
+                    # 타임아웃 발생 시 shutdown_event 확인 후 계속 진행
                     continue
                 except websockets.ConnectionClosed:
                     break
