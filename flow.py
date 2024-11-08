@@ -97,47 +97,62 @@ async def connect(shutdown_event):
         logger.debug('websocket 연결 시작')
         config = get_config()
         g_approval_key = get_approval(config["appkey"], config["appsecret"])
-        #print(f"approval_key: {g_approval_key}")
-
         url = 'ws://ops.koreainvestment.com:31000'
         code_list = [
             ['1', 'H0STASP0', '005930'],
             ['1', 'H0STASP0', '051910'],
             ['1', 'H0STASP0', '000660'],
         ]
-        senddata_list = [json.dumps({"header": {"approval_key": g_approval_key, "custtype": "P", "tr_type": i, "content-type": "utf-8"}, "body": {"input": {"tr_id": j, "tr_key": k}}}) for i, j, k in code_list]
+        senddata_list = [json.dumps({
+            "header": {
+                "approval_key": g_approval_key,
+                "custtype": "P",
+                "tr_type": i,
+                "content-type": "utf-8"
+            },
+            "body": {
+                "input": {
+                    "tr_id": j,
+                    "tr_key": k
+                }
+            }
+        }) for i, j, k in code_list]
 
-        async with websockets.connect(url, ping_interval=None) as ws:
-            for senddata in senddata_list:
-                await ws.send(senddata)
-                await asyncio.sleep(0.5)
+        while not shutdown_event.is_set():
+            try:
+                async with websockets.connect(url, ping_interval=None) as ws:
+                    for senddata in senddata_list:
+                        await ws.send(senddata)
+                        await asyncio.sleep(0.5)
 
-            while not shutdown_event.is_set():
-                try:
-                    data = await ws.recv()
-                    if data[0] in ['0', '1']:
-                        recvstr = data.split('|')
-                        trid0 = recvstr[1]
-                        if trid0 == "H0STASP0":
-                            await stockhoka(recvstr[3])
-                    else:  # 웹소켓 세션 유지를 위한 PINGPONG 메시지 처리
-                        jsonObject = json.loads(data)
-                        trid = jsonObject["header"]["tr_id"]
-                        if trid == "PINGPONG":
-                            logger.debug(f"### RECV [PINGPONG] [{data}]")
-                            logger.debug(f"### SEND [PINGPONG] [{data}]")
-                            await ws.send(data)  # PINGPONG 메시지 응답
-                except asyncio.TimeoutError:
-                    continue
-                except websockets.ConnectionClosed:
-                    break
-        logger.debug('websocket 연결 종료')
-    except Exception as e:
-        logger.error(f"connect 중 오류 발생: {e}")
-        raise
+                    while not shutdown_event.is_set():
+                        try:
+                            data = await asyncio.wait_for(ws.recv(), timeout=10)  # 타임아웃 추가
+                            if data[0] in ['0', '1']:
+                                recvstr = data.split('|')
+                                trid0 = recvstr[1]
+                                if trid0 == "H0STASP0":
+                                    await stockhoka(recvstr[3])
+                            else:
+                                jsonObject = json.loads(data)
+                                trid = jsonObject["header"]["tr_id"]
+                                if trid == "PINGPONG":
+                                    logger.debug(f"### RECV [PINGPONG] [{data}]")
+                                    logger.debug(f"### SEND [PINGPONG] [{data}]")
+                                    await ws.send(data)
+                        except asyncio.TimeoutError:
+                            logger.debug("Timeout 발생: 재연결 시도 중")
+                            break  # 타임아웃 발생 시 루프를 빠져나가 재연결
+                        except websockets.ConnectionClosed:
+                            logger.warning("웹소켓 연결이 닫혔습니다. 재연결 시도 중...")
+                            break  # 연결이 닫히면 재연결 시도
+            except Exception as e:
+                logger.error(f"웹소켓 연결 오류: {e}. 재연결을 시도합니다.")
+                await asyncio.sleep(5)  # 재연결 시도 전에 약간의 대기 시간 추가
     finally:
         if producer:
             producer.close()
+        logger.debug('websocket 연결 종료')
 
 @task
 async def run_connect(shutdown_event):
