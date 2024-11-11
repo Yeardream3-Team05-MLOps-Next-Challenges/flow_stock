@@ -91,7 +91,7 @@ async def stockhoka(data):
     })
     logger.debug('stockhoka 처리 완료')
 
-async def connect(shutdown_event):
+async def connect():
     logger = get_logger()
     try:
         logger.debug('websocket 연결 시작')
@@ -118,54 +118,49 @@ async def connect(shutdown_event):
             }
         }) for i, j, k in code_list]
 
-        while not shutdown_event.is_set():
-            try:
-                async with websockets.connect(url, ping_interval=None) as ws:
-                    for senddata in senddata_list:
-                        await ws.send(senddata)
-                        await asyncio.sleep(0.5)
+        async with websockets.connect(url, ping_interval=None) as ws:
+            for senddata in senddata_list:
+                await ws.send(senddata)
+                await asyncio.sleep(0.5)
 
-                    while not shutdown_event.is_set():
-                        try:
-                            data = await asyncio.wait_for(ws.recv(), timeout=10)  # 타임아웃 추가
-                            if data[0] in ['0', '1']:
-                                recvstr = data.split('|')
-                                trid0 = recvstr[1]
-                                if trid0 == "H0STASP0":
-                                    await stockhoka(recvstr[3])
-                            else:
-                                jsonObject = json.loads(data)
-                                trid = jsonObject["header"]["tr_id"]
-                                if trid == "PINGPONG":
-                                    logger.debug(f"### RECV [PINGPONG] [{data}]")
-                                    logger.debug(f"### SEND [PINGPONG] [{data}]")
-                                    await ws.send(data)
-                        except asyncio.TimeoutError:
-                            logger.debug("Timeout 발생: 재연결 시도 중")
-                            break  # 타임아웃 발생 시 루프를 빠져나가 재연결
-                        except websockets.ConnectionClosed:
-                            logger.warning("웹소켓 연결이 닫혔습니다. 재연결 시도 중...")
-                            break  # 연결이 닫히면 재연결 시도
-            except Exception as e:
-                logger.error(f"웹소켓 연결 오류: {e}. 재연결을 시도합니다.")
-                await asyncio.sleep(5)  # 재연결 시도 전에 약간의 대기 시간 추가
+            while True:
+                try:
+                    data = await asyncio.wait_for(ws.recv(), timeout=10)
+                    if data[0] in ['0', '1']:
+                        recvstr = data.split('|')
+                        trid0 = recvstr[1]
+                        if trid0 == "H0STASP0":
+                            await stockhoka(recvstr[3])
+                    else:
+                        jsonObject = json.loads(data)
+                        trid = jsonObject["header"]["tr_id"]
+                        if trid == "PINGPONG":
+                            logger.debug(f"### RECV [PINGPONG] [{data}]")
+                            logger.debug(f"### SEND [PINGPONG] [{data}]")
+                            await ws.send(data)
+                except asyncio.TimeoutError:
+                    logger.debug("Timeout 발생: 재연결 시도 중")
+                    continue
+                except websockets.ConnectionClosed:
+                    logger.warning("웹소켓 연결이 닫혔습니다. 재연결 시도 중...")
+                    continue
+    except Exception as e:
+        logger.error(f"웹소켓 연결 오류: {e}. 재연결을 시도합니다.")
     finally:
         if producer:
             producer.close()
         logger.debug('websocket 연결 종료')
 
 @task
-async def run_connect(shutdown_event):
+async def run_connect():
     logger = get_logger()
     try:
-        await connect(shutdown_event)
+        await connect()  # shutdown_event 인자 제거
     except Exception as e:
         logger.error(f"run_connect 태스크 실행 중 오류 발생: {e}")
-    finally:
-        shutdown_event.set() 
 
 @task
-async def shutdown_at_8pm(shutdown_event):
+async def shutdown_at_8pm():
     logger = get_logger()
     try:
         kst = pytz.timezone('Asia/Seoul')
@@ -177,27 +172,23 @@ async def shutdown_at_8pm(shutdown_event):
             logger.info(f"8PM KST까지 {wait_seconds}초 대기 중")
             await asyncio.sleep(wait_seconds)
         logger.info("한국 시간 오후 8시가 되어 프로그램을 종료합니다.")
-        shutdown_event.set()  # 종료 이벤트 설정
-
+        os._exit(0)  # 프로세스 강제 종료
     except Exception as e:
         logger.error(f"shutdown_at_8pm에서 오류 발생: {e}")
-        shutdown_event.set()
+        os._exit(1)  # 에러 코드와 함께 프로세스 종료
 
 @flow
 def hun_fetch_and_send_stock_flow():
     async def async_flow():
         logger = get_logger()
-        #log_level = os.getenv('LOG_LEVEL', 'INFO')
-        #logger.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
         if 'producer' not in globals():
             global producer
             producer = None
 
-        shutdown_event = asyncio.Event()
-        connect_task = asyncio.create_task(run_connect(shutdown_event))
-        shutdown_task = asyncio.create_task(shutdown_at_8pm(shutdown_event))
-        
+        connect_task = asyncio.create_task(run_connect())
+        shutdown_task = asyncio.create_task(shutdown_at_8pm())
+
         await asyncio.wait([connect_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED)
 
         connect_task.cancel()
@@ -209,7 +200,6 @@ def hun_fetch_and_send_stock_flow():
         logger.info("모든 작업이 종료되었습니다.")
 
     asyncio.run(async_flow())
-
 
 if __name__ == "__main__":
    hun_fetch_and_send_stock_flow() 
