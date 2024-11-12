@@ -172,6 +172,9 @@ async def shutdown_at_8pm():
             logger.info(f"8PM KST까지 {wait_seconds}초 대기 중")
             await asyncio.sleep(wait_seconds)
         logger.info("한국 시간 오후 8시가 되어 프로그램을 종료합니다.")
+        if run_connect.is_running():
+            run_connect.cancel()
+            await run_connect
         os._exit(0)  # 프로세스 강제 종료
     except Exception as e:
         logger.error(f"shutdown_at_8pm에서 오류 발생: {e}")
@@ -191,16 +194,13 @@ def hun_fetch_and_send_stock_flow():
 
         await asyncio.wait([connect_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED)
 
-        connect_task.cancel()
-        try:
-            await connect_task
-        except asyncio.CancelledError:
-            logger.info("connect_task has been cancelled.")
+        if run_connect.is_running():
+            run_connect.cancel()
+            await run_connect
 
         logger.info("모든 작업이 종료되었습니다.")
 
     asyncio.run(async_flow())
 
 if __name__ == "__main__":
-   hun_fetch_and_send_stock_flow() 
-
+   hun_fetch_and_send_stock_flow()
