@@ -151,6 +151,22 @@ async def connect():
             producer.close()
         logger.debug('websocket 연결 종료')
 
+async def shutdown_at_8pm():
+    logger = get_logger()
+    try:
+        kst = pytz.timezone('Asia/Seoul')
+        now = datetime.datetime.now(kst)
+        target_time = now.replace(hour=20, minute=0, second=0, microsecond=0)
+        if now < target_time:
+            wait_seconds = (target_time - now).total_seconds()
+            logger.info(f"8PM KST까지 {wait_seconds}초 대기 중")
+            await asyncio.sleep(wait_seconds)
+        logger.info("한국 시간 오후 8시가 되어 프로그램을 종료합니다.")
+        raise SystemExit("8PM 종료 완료")  # 시스템 종료 예외 발생
+    except Exception as e:
+        logger.error(f"shutdown_at_8pm에서 오류 발생: {e}")
+        raise
+
 @task
 async def run_connect():
     logger = get_logger()
@@ -160,26 +176,9 @@ async def run_connect():
         logger.error(f"run_connect 태스크 실행 중 오류 발생: {e}")
 
 @task
-async def shutdown_at_8pm():
-    logger = get_logger()
-    try:
-        kst = pytz.timezone('Asia/Seoul')
-        now = datetime.datetime.now(kst)
-        logger.info(f"현재 시간: {now}")
-        target_time = now.replace(hour=20, minute=0, second=0, microsecond=0)
-        if now < target_time:
-            wait_seconds = (target_time - now).total_seconds()
-            logger.info(f"8PM KST까지 {wait_seconds}초 대기 중")
-            await asyncio.sleep(wait_seconds)
-        logger.info("한국 시간 오후 8시가 되어 프로그램을 종료합니다.")
-        if run_connect.is_running():
-            run_connect.cancel()
-            await run_connect
-        os._exit(0)  # 프로세스 강제 종료
-    except Exception as e:
-        logger.error(f"shutdown_at_8pm에서 오류 발생: {e}")
-        os._exit(1)  # 에러 코드와 함께 프로세스 종료
-
+async def run_shutdown():
+    await shutdown_at_8pm() 
+    
 @flow
 def hun_fetch_and_send_stock_flow():
     async def async_flow():
@@ -192,13 +191,16 @@ def hun_fetch_and_send_stock_flow():
         connect_task = asyncio.create_task(run_connect())
         shutdown_task = asyncio.create_task(shutdown_at_8pm())
 
-        await asyncio.wait([connect_task, shutdown_task], return_when=asyncio.FIRST_COMPLETED)
-
-        if run_connect.is_running():
-            run_connect.cancel()
-            await run_connect
-
-        logger.info("모든 작업이 종료되었습니다.")
+        try:
+            # gather로 모든 태스크를 실행하고, 종료 시점을 명확히 관리
+            await asyncio.gather(connect_task, shutdown_task)
+        except SystemExit as e:
+            logger.info(str(e))  # 종료 예외 처리
+        finally:
+            if not connect_task.done():
+                connect_task.cancel()
+                await connect_task
+            logger.info("모든 작업이 종료되었습니다.")
 
     asyncio.run(async_flow())
 
