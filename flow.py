@@ -188,21 +188,36 @@ def hun_fetch_and_send_stock_flow():
             global producer
             producer = None
 
-        connect_task = asyncio.create_task(run_connect())
-        shutdown_task = asyncio.create_task(shutdown_at_8pm())
-
         try:
-            # gather로 모든 태스크를 실행하고, 종료 시점을 명확히 관리
-            await asyncio.gather(connect_task, shutdown_task)
-        except SystemExit as e:
-            logger.info(str(e))  # 종료 예외 처리
-        finally:
-            if not connect_task.done():
-                connect_task.cancel()
-                await connect_task
-            logger.info("모든 작업이 종료되었습니다.")
+            # connect 태스크와 shutdown 태스크를 동시에 실행
+            connect_task = asyncio.create_task(connect())
+            shutdown_task = asyncio.create_task(shutdown_at_8pm())
+            
+            # 둘 중 하나라도 완료되면 종료
+            done, pending = await asyncio.wait(
+                [connect_task, shutdown_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
 
+            # 남은 태스크 정리
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            # producer 정리
+            if producer:
+                producer.close()
+                
+            logger.info("Flow가 정상적으로 종료되었습니다.")
+
+        except Exception as e:
+            logger.error(f"Flow 실행 중 오류 발생: {e}")
+            raise
+            
     asyncio.run(async_flow())
-
+    
 if __name__ == "__main__":
    hun_fetch_and_send_stock_flow()
