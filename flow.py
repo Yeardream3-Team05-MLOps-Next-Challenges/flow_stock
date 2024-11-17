@@ -171,14 +171,27 @@ async def shutdown_at_8pm():
 async def run_connect():
     logger = get_logger()
     try:
-        await connect()  # shutdown_event 인자 제거
+        await connect()
+    except asyncio.CancelledError:
+        logger.info("Connect task가 취소되었습니다.")
+        if producer:
+            producer.close()
+        raise
     except Exception as e:
-        logger.error(f"run_connect 태스크 실행 중 오류 발생: {e}")
+        logger.error(f"Connect 실행 중 오류: {e}")
+        raise
 
 @task
-async def run_shutdown():
-    await shutdown_at_8pm() 
-    
+async def check_time():
+    logger = get_logger()
+    while True:
+        kst = pytz.timezone('Asia/Seoul')
+        now = datetime.now(kst)
+        if now.hour >= 20:  # 8PM 이후
+            logger.info("8PM이 되어 종료를 시작합니다.")
+            return True
+        await asyncio.sleep(60) 
+
 @flow
 def hun_fetch_and_send_stock_flow():
     async def async_flow():
@@ -189,35 +202,32 @@ def hun_fetch_and_send_stock_flow():
             producer = None
 
         try:
-            # connect 태스크와 shutdown 태스크를 동시에 실행
-            connect_task = asyncio.create_task(connect())
-            shutdown_task = asyncio.create_task(shutdown_at_8pm())
+            connect_future = asyncio.create_task(run_connect.submit().result())
+            check_future = asyncio.create_task(check_time.submit().result())
+
+            # 시간 체크 태스크가 완료될 때까지 실행
+            await check_future
             
-            # 둘 중 하나라도 완료되면 종료
-            done, pending = await asyncio.wait(
-                [connect_task, shutdown_task],
-                return_when=asyncio.FIRST_COMPLETED
-            )
+            # connect 태스크 취소
+            connect_future.cancel()
+            try:
+                await connect_future
+            except asyncio.CancelledError:
+                pass
 
-            # 남은 태스크 정리
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
-            # producer 정리
             if producer:
                 producer.close()
-                
-            logger.info("Flow가 정상적으로 종료되었습니다.")
-
-        except Exception as e:
-            logger.error(f"Flow 실행 중 오류 발생: {e}")
-            raise
+                logger.info("Producer가 정상적으로 종료되었습니다.")
             
+            logger.info("모든 작업이 정상적으로 종료되었습니다.")
+            
+        except Exception as e:
+            logger.error(f"Flow 실행 중 오류: {e}")
+            if producer:
+                producer.close()
+            raise
+
     asyncio.run(async_flow())
-    
+
 if __name__ == "__main__":
    hun_fetch_and_send_stock_flow()
