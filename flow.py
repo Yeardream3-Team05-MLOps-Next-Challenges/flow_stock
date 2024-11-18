@@ -167,7 +167,6 @@ async def shutdown_at_8pm():
         logger.error(f"shutdown_at_8pm에서 오류 발생: {e}")
         raise
 
-@task
 async def run_connect():
     logger = get_logger()
     try:
@@ -181,7 +180,6 @@ async def run_connect():
         logger.error(f"Connect 실행 중 오류: {e}")
         raise
 
-@task
 async def check_time():
     logger = get_logger()
     while True:
