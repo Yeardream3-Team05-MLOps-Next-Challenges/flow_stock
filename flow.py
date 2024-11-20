@@ -174,6 +174,11 @@ def hun_fetch_and_send_stock_flow():
 
     async def async_flow():
         logger = get_logger()
+        
+        if 'producer' not in globals():
+            global producer
+            producer = None
+            
         try:
             connect_task = asyncio.create_task(run_connect.fn(stop_event))
             await check_time.fn(stop_event)  # 시간이 되면 SystemExit 발생
