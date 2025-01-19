@@ -1,0 +1,44 @@
+name: Prefect flow CI/CD
+
+on:
+  push:
+    branches:
+      - test 
+
+
+jobs:
+
+  build:
+    name: Build
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        arch: [ arm64 ]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Extract version from pyproject.toml
+      id: get_version
+      run: echo "VERSION=$(grep '^version =' pyproject.toml | sed -E 's/version = \"(.*)\"/\1/')" >> $GITHUB_OUTPUT
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v2
+      with:
+        platforms: arm64
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      run: docker buildx build --platform linux/${{ matrix.arch }} --load -t myapp:${{ steps.get_version.outputs.VERSION }} .
+
+    - name: Run Docker container and Run Tests
+      run: |
+          docker run --name myapp_test myapp:${{ steps.get_version.outputs.VERSION }} pytest --disable-warnings -v
+          docker logs myapp_test 
+      continue-on-error: false 
+
+    - name: Clean up Docker container
+      if: always()   
+      run: docker rm -f myapp_test
