@@ -16,8 +16,6 @@ ENV APP_SECRET=${APP_SECRET}
 ENV HTS_ID=${HTS_ID}
 ENV KAFKA_URL=${KAFKA_URL}
 
-ENV PYTHONPATH="/opt/prefect/flows"
-
 COPY pyproject.toml poetry.lock* ./
 
 RUN python -m pip install --upgrade pip \
