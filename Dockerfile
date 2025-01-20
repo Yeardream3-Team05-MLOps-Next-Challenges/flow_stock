@@ -16,7 +16,7 @@ ENV APP_SECRET=${APP_SECRET}
 ENV HTS_ID=${HTS_ID}
 ENV KAFKA_URL=${KAFKA_URL}
 
-ENV PYTHONPATH="/opt/prefect/flows"
+ENV PYTHONPATH="/opt/prefect/flows:/opt/prefect/flows/src"
 
 COPY pyproject.toml poetry.lock* ./
 
