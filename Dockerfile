@@ -20,10 +20,10 @@ ENV PYTHONPATH="/opt/prefect/flows"
 
 COPY pyproject.toml poetry.lock* ./
 
-RUN python -m pip install --upgrade pip\
+RUN python -m pip install --upgrade pip \
     && pip install --no-cache-dir poetry \
     && poetry config virtualenvs.create false \
-    && poetry install \
+    && poetry install --no-root \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
