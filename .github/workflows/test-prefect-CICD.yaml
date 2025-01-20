@@ -35,7 +35,7 @@ jobs:
 
     - name: Run Docker container and Run Tests
       run: |
-          docker run --name myapp_test myapp:${{ steps.get_version.outputs.VERSION }} python -m pytest --disable-warnings -v
+          docker run --name myapp_test myapp:${{ steps.get_version.outputs.VERSION }} pytest --disable-warnings -v --import-mode=importlib
           docker logs myapp_test 
       continue-on-error: false 
 
