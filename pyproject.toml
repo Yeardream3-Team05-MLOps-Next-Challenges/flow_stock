@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flow-stock"
-version = "0.1.31"
+version = "0.1.32"
 description = ""
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
