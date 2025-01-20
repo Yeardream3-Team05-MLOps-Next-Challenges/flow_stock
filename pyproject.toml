@@ -23,6 +23,3 @@ pytest = "^8.3.4"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.pytest.ini_options]
-pythonpath = "src"
-testpaths = ["tests"]
