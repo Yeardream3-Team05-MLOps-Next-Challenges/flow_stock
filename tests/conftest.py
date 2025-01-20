@@ -1,4 +1,5 @@
-from src.logger import setup_logging
+import os
 
 def pytest_configure(config):
-    setup_logging()
+
+    os.environ['PREFECT_LOGGING_LEVEL'] = 'INFO'
