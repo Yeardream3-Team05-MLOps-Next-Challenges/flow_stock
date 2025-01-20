@@ -8,7 +8,7 @@ import logging
 import datetime
 import pytz
 
-from src.logger import is_prefect_env, get_logger
+from src.logger import get_logger
 
 def setup_kafka_producer_logic():
     """Kafka Producer를 설정하는 순수 함수."""
