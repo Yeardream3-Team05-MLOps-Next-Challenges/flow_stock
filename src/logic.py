@@ -1,157 +1,132 @@
-import websockets
+import os
 import json
 import requests
-import os
+import websockets
 import asyncio
-from kafka import KafkaProducer
-import logging
 import datetime
+from typing import Optional, Dict
+from kafka import KafkaProducer
 import pytz
 
 from src.logger import get_logger
 
-def setup_kafka_producer_logic():
-    """Kafka Producer를 설정하는 순수 함수."""
+async def process_market_data(data: str, producer: KafkaProducer, topic: str):
+    """시장 데이터 처리 로직"""
     logger = get_logger()
-
     try:
-        producer = KafkaProducer(
-            acks=0,
-            compression_type='gzip',
-            bootstrap_servers=os.getenv('KAFKA_URL', 'default_url'),
-            value_serializer=lambda x: json.dumps(x).encode('utf-8'),
-            api_version=(2,)
-        )
-        logger.debug('Kafka Producer 설정 완료')
-        return producer
+        parsed_data = parse_data(data)
+        enriched_data = add_timestamp(parsed_data)
+        await send_to_kafka(enriched_data, producer, topic)
     except Exception as e:
-        logger.error(f"Kafka Producer 설정 중 오류 발생: {e}")
+        logger.error(f"데이터 처리 실패: {e}")
+
+def parse_data(raw_data: str) -> Dict:
+    """웹소켓 데이터 파싱"""
+    parts = raw_data.split('|')
+    return {
+        "종목코드": parts[0],
+        "현재가": parts[3],
+        "타임스탬프": parts[1]
+    }
+
+def add_timestamp(data: Dict) -> Dict:
+    """타임스탬프 추가"""
+    kst = pytz.timezone('Asia/Seoul')
+    now = datetime.datetime.now(kst)
+    return {**data, "수신시간": now.isoformat()}
+
+async def send_to_kafka(data: Dict, producer: KafkaProducer, topic: str):
+    """Kafka 전송 로직"""
+    try:
+        producer.send(topic, value=data)
+    except Exception as e:
+        get_logger().error(f"Kafka 전송 실패: {e}")
         raise
 
-def get_config_logic():
-    """설정 정보를 가져오는 순수 함수."""
-    logger = get_logger()
-    logger.debug('get_config 호출됨')
+def load_config() -> Dict:
+    """환경 설정 로드"""
     return {
         "CODE_LIST": [
             ['1', 'H0STASP0', '005930'],
             ['1', 'H0STASP0', '051910'],
             ['1', 'H0STASP0', '000660'],
         ],
-        "WEBSOCKET_URL": 'ws://ops.koreainvestment.com:31000',
-        "API_URL": 'https://openapivts.koreainvestment.com:29443',
-        "KAFKA_TOPIC": 'tt_tick',
-        "appkey": os.getenv('APP_KEY', 'default_key'),
-        "appsecret": os.getenv('APP_SECRET', 'default_secret'),
-        "htsid": os.getenv('HTS_ID', 'default_id'),
+        "WEBSOCKET_URL": os.getenv("WEBSOCKET_URL", "ws://ops.koreainvestment.com:31000"),
+        "API_URL": os.getenv("API_URL", "https://openapivts.koreainvestment.com:29443"),
+        "KAFKA_TOPIC": os.getenv("KAFKA_TOPIC", "tt_tick"),
+        "APP_KEY": os.getenv("APP_KEY"),
+        "APP_SECRET": os.getenv("APP_SECRET")
     }
 
-def get_approval_logic(key: str, secret: str):
-    """인증 키를 가져오는 순수 함수."""
-    logger = get_logger()
-    logger.debug('get_approval 호출됨')
+def get_api_approval(api_url: str, appkey: str, secret: str) -> str:
+    """API 인증 키 획득"""
+    response = requests.post(
+        f"{api_url}/oauth2/Approval",
+        headers={"content-type": "application/json"},
+        json={"grant_type": "client_credentials", "appkey": appkey, "secretkey": secret}
+    )
+    response.raise_for_status()
+    return response.json()["approval_key"]
 
-    url = 'https://openapivts.koreainvestment.com:29443'
-    headers = {"content-type": "application/json"}
-    body = {"grant_type": "client_credentials", "appkey": key, "secretkey": secret}
-    PATH = "oauth2/Approval"
-    URL = f"{url}/{PATH}"
-    res = requests.post(URL, headers=headers, data=json.dumps(body))
-    approval_key = res.json()["approval_key"]
-    return approval_key
-
-async def send_to_kafka_logic(data: dict, producer):
-    """Kafka로 데이터를 전송하는 순수 함수."""
-    logger = get_logger()
-    
-    if producer is None:
-        logger.error("Kafka Producer가 설정되지 않았습니다.")
-        raise ValueError("Kafka Producer가 설정되지 않았습니다.")
-    
-    logger.debug('Kafka로 전송 시작')
-    current_date = datetime.datetime.now().strftime("%Y%m%d")
-    data['날짜'] = current_date
-    producer.send(get_config_logic()["KAFKA_TOPIC"], value=data)
-    logger.debug('Kafka로 데이터 전송 완료')
-
-async def stockhoka_logic(data: str, producer):
-    """주식 호가 데이터를 처리하는 순수 함수."""
-    logger = get_logger()
-    logger.debug('stockhoka 처리 시작')
-    recvvalue = data.split('^')
-    await send_to_kafka_logic({
-        "종목코드": recvvalue[0],
-        "현재가": recvvalue[3],
-        "현재시간": recvvalue[1],
-    }, producer)
-    logger.debug('stockhoka 처리 완료')
-
-async def connect_logic(
-    stop_event: asyncio.Event,
-    websocket_url: str,
-    code_list
+async def connect_websocket(
+    config: Dict,
+    producer: KafkaProducer,
+    auth_key: str,
+    stop_event: asyncio.Event
 ):
-    """WebSocket에 연결하는 순수 함수."""
+    """웹소켓 연결 관리"""
     logger = get_logger()
     try:
-        logger.debug('WebSocket 연결 시작')
-        config = get_config_logic()
-        g_approval_key = get_approval_logic(config["appkey"], config["appsecret"])
-        url = websocket_url
+        async with websockets.connect(config["WEBSOCKET_URL"]) as ws:
+            await initialize_connection(ws, config["CODE_LIST"], auth_key)
+            await handle_messages(ws, producer, config["KAFKA_TOPIC"], stop_event)
+    except Exception as e:
+        logger.error(f"웹소켓 연결 오류: {e}")
+        stop_event.set()
 
-        senddata_list = [json.dumps({
+async def initialize_connection(ws, code_list, auth_key):
+    """웹소켓 초기 연결 설정"""
+    for tr_type, tr_id, tr_key in code_list:
+        await ws.send(json.dumps({
             "header": {
-                "approval_key": g_approval_key,
+                "approval_key": auth_key,
                 "custtype": "P",
-                "tr_type": i,
+                "tr_type": tr_type,
                 "content-type": "utf-8"
             },
-            "body": {
-                "input": {
-                    "tr_id": j,
-                    "tr_key": k
-                }
-            }
-        }) for i, j, k in code_list]
+            "body": {"input": {"tr_id": tr_id, "tr_key": tr_key}}
+        }))
+        await asyncio.sleep(0.5)
 
-        async with websockets.connect(url, ping_interval=None) as ws:
-            for senddata in senddata_list:
-                await ws.send(senddata)
-                await asyncio.sleep(0.5)
+async def handle_messages(ws, producer, topic, stop_event):
+    """메시지 처리 핸들러"""
+    while not stop_event.is_set():
+        try:
+            data = await asyncio.wait_for(ws.recv(), timeout=15)
+            if data.startswith("{"):
+                await handle_control_message(data, ws)
+            else:
+                await process_market_data(data, producer, topic)
+        except asyncio.TimeoutError:
+            continue
+        except websockets.ConnectionClosed:
+            break
 
-            while not stop_event.is_set():
-                try:
-                    data = await asyncio.wait_for(ws.recv(), timeout=10)
-                    logger.debug(f"WebSocket 데이터 수신: {data}")
-
-                    if data.startswith("{"):
-                        json_data = json.loads(data)
-                        if json_data["header"]["tr_id"] == "PINGPONG":
-                            logger.debug("PINGPONG 메시지 수신, 응답 전송")
-                            await ws.send(data)
-                    else:
-                        recvstr = data.split('|')
-                        if recvstr[1] == "H0STASP0":
-                            await stockhoka_logic(recvstr[3], producer=None)
-                except asyncio.TimeoutError:
-                    logger.debug("Timeout 발생, 연결 유지 확인 중")
-                    continue
-                except websockets.ConnectionClosed:
-                    logger.warning("웹소켓 연결 종료됨")
-                    break
-    except Exception as e:
-        logger.error(f"WebSocket 연결 오류: {e}")
-    finally:
-        logger.info('WebSocket 연결 종료')
-
-async def check_time_logic(stop_event: asyncio.Event):
-    """정해진 시간이 되면 종료하는 순수 함수."""
+async def handle_control_message(data: str, ws):
+    """제어 메시지 처리"""
     logger = get_logger()
-    while True:
+    message = json.loads(data)
+    if message.get("header", {}).get("tr_id") == "PINGPONG":
+        logger.debug("PINGPONG 응답")
+        await ws.send(data)
+
+async def monitor_shutdown(stop_event: asyncio.Event):
+    """종료 시간 모니터링"""
+    logger = get_logger()
+    while not stop_event.is_set():
         kst = pytz.timezone('Asia/Seoul')
         now = datetime.datetime.now(kst)
-        if now.hour >= 20:  # 오후 8시 이후
-            logger.info("8PM이 되어 종료를 시작합니다.")
+        if now.hour >= 20:
+            logger.info("20:00 종료 트리거")
             stop_event.set()
-            raise SystemExit("8PM 종료 완료")
         await asyncio.sleep(60)

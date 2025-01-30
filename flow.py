@@ -1,114 +1,93 @@
-from prefect import task, flow
+from prefect import task, flow, get_run_logger
+from typing import Optional
 import asyncio
-from typing import Optional, Dict, Any
-from dataclasses import dataclass
-from contextlib import asynccontextmanager
+from kafka import KafkaProducer
+import os
+import json
 
 from src.logger import get_logger, setup_logging
 from src.logic import (
-    setup_kafka_producer_logic,
-    get_config_logic,
-    get_approval_logic,
-    send_to_kafka_logic,
-    stockhoka_logic,
-    connect_logic,
-    check_time_logic
+    load_config,
+    get_api_approval,
+    connect_websocket,
+    process_market_data,
+    monitor_shutdown
 )
 
-@dataclass
-class AppState:
-    """애플리케이션 상태를 관리하는 클래스"""
-    producer: Optional[Any] = None
-    config: Optional[Dict] = None
-
-    def cleanup(self):
-        """리소스 정리를 위한 메서드"""
-        if self.producer is not None:
-            self.producer.close()
-            self.producer = None
-
-
-# 전역 상태 관리
-app_state = AppState()
-
-@asynccontextmanager
-async def managed_resources():
-    """리소스 생명주기 관리를 위한 컨텍스트 매니저"""
-    logger = get_logger()
+@task(name="Initialize Kafka Producer", retries=2, retry_delay_seconds=5)
+def init_kafka_producer() -> Optional[KafkaProducer]:
+    """Kafka Producer 초기화 태스크"""
+    logger = get_run_logger()
     try:
-        yield
+        producer = KafkaProducer(
+            bootstrap_servers=os.getenv("KAFKA_URL", "localhost:9092"),
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            acks=0,
+            compression_type='gzip',
+            api_version=(2,)
+        )
+        logger.debug("Kafka Producer 초기화 완료")
+        return producer
+    except Exception as e:
+        logger.error(f"Kafka 초기화 실패: {e}")
+        raise
+
+@task(name="Load Configuration")
+def load_config_task() -> dict:
+    """환경 설정 로드 태스크"""
+    return load_config()
+
+@task(name="Get API Authorization")
+def get_auth_task(config: dict) -> str:
+    """API 인증 키 획득 태스크"""
+    logger = get_run_logger()
+    try:
+        return get_api_approval(
+            config["API_URL"],
+            config["APP_KEY"],
+            config["APP_SECRET"]
+        )
+    except Exception as e:
+        logger.critical("인증 키 획득 실패: %s", str(e))
+        raise
+
+@flow(
+    name="Stock Data Pipeline",
+    timeout_seconds=46800, 
+    description="주식 시장 데이터 수집 파이프라인 (08:00 ~ 20:00)"
+)
+async def stock_data_pipeline():
+    """주식 데이터 처리 메인 플로우"""
+    logger = get_run_logger()
+    stop_event = asyncio.Event()
+    
+    # 의존성 주입
+    config = load_config_task()
+    producer = init_kafka_producer()
+    auth_key = get_auth_task(config)
+    
+    try:
+        await asyncio.gather(
+            connect_websocket(config, producer, auth_key, stop_event),
+            monitor_shutdown(stop_event)
+        )
+    except Exception as e:
+        logger.error(f"플로우 실행 중 오류 발생: {e}")
+        stop_event.set()
     finally:
-        app_state.cleanup()
-        logger.info("Resources cleaned up.")
+        await graceful_shutdown(producer)
 
-@task(name="Setup Kafka Producer")
-def setup_kafka_producer() -> None:
-    """Kafka Producer를 설정하는 Prefect 태스크"""
-    app_state.producer = setup_kafka_producer_logic()
-
-@task(name="Get Config")
-def get_config() -> Dict:
-    """설정 정보를 가져오는 Prefect 태스크"""
-    app_state.config = get_config_logic()
-    return app_state.config
-
-@task(name="Get Approval")
-def get_approval(key: str, secret: str) -> str:
-    """인증 키를 가져오는 Prefect 태스크"""
-    return get_approval_logic(key, secret)
-
-@task(name="Send to Kafka")
-async def send_to_kafka(data: Dict) -> None:
-    """Kafka로 데이터를 전송하는 Prefect 태스크"""
-    await send_to_kafka_logic(data, app_state.producer)
-
-@task(name="Process Stock Hoka")
-async def stockhoka(data: str) -> None:
-    """주식 호가 데이터를 처리하는 Prefect 태스크"""
-    await stockhoka_logic(data, app_state.producer)
-
-@task(name="Connect to WebSocket")
-async def run_connect(stop_event: asyncio.Event, websocket_url: str = None, code_list = None) -> None:
-    """WebSocket에 연결하는 Prefect 태스크"""
-    config = get_config()
-    await connect_logic(stop_event, websocket_url or config["WEBSOCKET_URL"], code_list or config["CODE_LIST"])
-
-@task(name="Check Time")
-async def check_time(stop_event: asyncio.Event) -> None:
-    """정해진 시간이 되면 종료하는 Prefect 태스크"""
-    await check_time_logic(stop_event)
-
-@flow
-def hun_fetch_and_send_stock_flow() -> None:
-    """전체 데이터 처리 플로우를 정의하는 Prefect 플로우"""
-    setup_logging()
-    logger = get_logger()
-    
-    async def async_flow():
-        stop_event = asyncio.Event()
-        
-        async with managed_resources():
-            try:
-                setup_kafka_producer()
-                config = get_config()
-                
-                connect_task = asyncio.create_task(
-                    run_connect.fn(stop_event)
-                )
-                
-                await check_time.fn(stop_event)
-                
-            except SystemExit as e:
-                logger.info(f"종료 이벤트 발생: {e}")
-            finally:
-                stop_event.set()
-                connect_task.cancel()
-                try:
-                    await connect_task
-                except asyncio.CancelledError:
-                    logger.info("Connect Task 강제 취소됨")
-    
-    asyncio.run(async_flow())
+@task(name="Graceful Shutdown")
+async def graceful_shutdown(producer: KafkaProducer):
+    """리소스 정리 태스크"""
+    logger = get_run_logger()
+    try:
+        logger.info("리소스 정리 시작")
+        producer.flush(timeout=5)
+        producer.close()
+        logger.debug("Kafka Producer 종료 완료")
+    except Exception as e:
+        logger.warning(f"리소스 정리 중 오류: {e}")
 
 if __name__ == "__main__":
-    hun_fetch_and_send_stock_flow()
+    asyncio.run(stock_data_pipeline())
