@@ -4,7 +4,7 @@ import requests
 import websockets
 import asyncio
 import datetime
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from kafka import KafkaProducer
 import pytz
 
@@ -14,26 +14,111 @@ async def process_market_data(data: str, producer: KafkaProducer, topic: str):
     """시장 데이터 처리 로직"""
     logger = get_logger()
     try:
-        parsed_data = parse_data(data)
-        enriched_data = add_timestamp(parsed_data)
-        await send_to_kafka(enriched_data, producer, topic)
+        parsed_records = parse_data(data)
+        if parsed_records:
+            for record in parsed_records:
+                try:
+                    await send_to_kafka(record, producer, topic)
+                except Exception as kafka_err:
+                    logger.error(f"Kafka 전송 실패 (레코드: {record}): {kafka_err}")
     except Exception as e:
         logger.error(f"데이터 처리 실패: {e}")
 
-def parse_data(raw_data: str) -> Dict:
-    """웹소켓 데이터 파싱"""
-    parts = raw_data.split('|')
-    return {
-        "종목코드": parts[0],
-        "현재가": parts[3],
-        "타임스탬프": parts[1]
-    }
-
-def add_timestamp(data: Dict) -> Dict:
-    """타임스탬프 추가"""
+def parse_data(raw_data: str) -> Optional[List[Dict]]: 
+    """웹소켓 Raw 데이터를 파싱"""
     kst = pytz.timezone('Asia/Seoul')
-    now = datetime.datetime.now(kst)
-    return {**data, "수신시간": now.isoformat()}
+    now_dt = datetime.datetime.now(kst)
+    today_date_str = now_dt.strftime('%Y%m%d')
+
+    parsed_records = [] 
+
+    try:
+        if raw_data.startswith('{'):
+            try:
+                json_data = json.loads(raw_data)
+                tr_id = json_data.get('header', {}).get('tr_id')
+                if tr_id == 'PINGPONG':
+                    # print(f"[{now_dt.isoformat()}] DEBUG: PINGPONG 무시")
+                    return None
+                elif json_data.get('body', {}).get('msg_cd') == 'OPSP0000':
+                    print(f"[{now_dt.isoformat()}] INFO: 구독 성공/실패 메시지 수신: {json_data.get('body', {}).get('msg1')}")
+                    return None
+                else:
+                    print(f"[{now_dt.isoformat()}] WARNING: 알 수 없는 JSON 메시지 수신: {raw_data}")
+                    return None
+            except json.JSONDecodeError:
+                print(f"[{now_dt.isoformat()}] ERROR: 잘못된 JSON 형식: {raw_data}")
+                return None
+
+        # 2. 파이프(|) 구분 메시지 확인
+        elif raw_data.startswith('0|') or raw_data.startswith('1|'):
+            parts = raw_data.split('|')
+            if len(parts) >= 4:
+                is_encrypted = parts[0] == '1'
+                tr_id = parts[1]
+                record_count_str = parts[2]
+                body_data_raw = parts[3]
+
+                # 3. TR_ID 확인 - 주식 체결(H0STCNT0)만 처리
+                if tr_id == 'H0STCNT0':
+                    if is_encrypted:
+                        print(f"[{now_dt.isoformat()}] WARNING: 암호화된 H0STCNT0 데이터 수신 (처리 로직 없음)")
+                        return None
+
+                    # 데이터 건수 확인
+                    try:
+                        record_count = int(record_count_str)
+                        if record_count <= 0:
+                            return None 
+                    except ValueError:
+                        print(f"[{now_dt.isoformat()}] ERROR: 유효하지 않은 데이터 건수: {record_count_str}")
+                        return None
+
+                    all_fields = body_data_raw.split('^')
+                    FIELDS_PER_RECORD = 46
+
+                    # 필드 개수 검증
+                    if len(all_fields) != record_count * FIELDS_PER_RECORD:
+                        print(f"[{now_dt.isoformat()}] WARNING: 필드 개수 불일치. 예상: {record_count * FIELDS_PER_RECORD}, 실제: {len(all_fields)}. 데이터: {body_data_raw}")
+                        return None 
+
+                    # 여러 건의 데이터 처리
+                    for i in range(record_count):
+                        start_index = i * FIELDS_PER_RECORD
+                        trade_data = all_fields[start_index : start_index + FIELDS_PER_RECORD]
+
+                        stock_code = trade_data[0].strip()      
+                        trade_time_str = trade_data[1].strip()  
+                        current_price_str = trade_data[2].strip() 
+
+                        # 간단한 유효성 검사
+                        if not stock_code or not trade_time_str or not current_price_str:
+                            print(f"[{now_dt.isoformat()}] WARNING: 필수 필드 누락 in record {i+1}. 데이터: {trade_data}")
+                            continue 
+
+                        # Kafka로 보낼 레코드 생성
+                        record = {
+                            "종목코드": stock_code,
+                            "현재가": current_price_str,
+                            "체결일시": f"{today_date_str}{trade_time_str}", # YYYYMMDDHHMMSS
+                            "수신시간": now_dt.isoformat()
+                        }
+                        parsed_records.append(record)
+
+                    # 처리된 레코드가 있으면 리스트 반환, 없으면 None 반환
+                    return parsed_records if parsed_records else None
+
+                else: 
+                    return None
+            else:
+                print(f"[{now_dt.isoformat()}] WARNING: 잘못된 파이프(|) 구분 형식 (필드 부족): {raw_data}")
+                return None
+        else:
+            print(f"[{now_dt.isoformat()}] WARNING: 알 수 없는 형식의 메시지 수신: {raw_data}")
+            return None
+    except Exception as e:
+        print(f"[{now_dt.isoformat()}] ERROR: 데이터 파싱 중 예외 발생: {e} - Data: {raw_data}")
+        return None
 
 async def send_to_kafka(data: Dict, producer: KafkaProducer, topic: str):
     """Kafka 전송 로직"""
@@ -47,9 +132,9 @@ def load_config() -> Dict:
     """환경 설정 로드"""
     return {
         "CODE_LIST": [
-            ['1', 'H0STASP0', '005930'],
-            ['1', 'H0STASP0', '051910'],
-            ['1', 'H0STASP0', '000660'],
+            ['1', 'H0STCNT0', '005930'],
+            ['1', 'H0STCNT0', '051910'],
+            ['1', 'H0STCNT0', '000660'],
         ],
         "WEBSOCKET_URL": os.getenv("WEBSOCKET_URL", "ws://ops.koreainvestment.com:31000"),
         "API_URL": os.getenv("API_URL", "https://openapivts.koreainvestment.com:29443"),
