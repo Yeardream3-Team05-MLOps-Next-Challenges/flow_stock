@@ -11,9 +11,6 @@ jobs:
   prefect-deploy:
     name: Prefect Deploy
     runs-on: self-hosted
-    strategy:
-      matrix:
-        arch: [ arm64 ]
 
     steps:
       - uses: actions/checkout@v3
