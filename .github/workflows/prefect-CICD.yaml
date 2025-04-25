@@ -10,7 +10,7 @@ jobs:
 
   prefect-deploy:
     name: Prefect Deploy
-    runs-on: ubuntu-22.04
+    runs-on: self-hosted
     strategy:
       matrix:
         arch: [ arm64 ]
