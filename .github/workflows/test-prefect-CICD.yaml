@@ -28,7 +28,7 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Build Docker image
-      run: docker buildx build --platform linux/${{ matrix.arch }} --load -t myapp:${{ steps.get_version.outputs.VERSION }} .
+      run: docker buildx build --platform linux/arm64 --load -t myapp:${{ steps.get_version.outputs.VERSION }} .
 
     - name: Run Docker container and Run Tests
       run: |
