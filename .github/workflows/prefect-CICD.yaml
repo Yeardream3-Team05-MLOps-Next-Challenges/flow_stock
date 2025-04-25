@@ -10,10 +10,7 @@ jobs:
 
   prefect-deploy:
     name: Prefect Deploy
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        arch: [ arm64 ]
+    runs-on: self-hosted
 
     steps:
       - uses: actions/checkout@v3
