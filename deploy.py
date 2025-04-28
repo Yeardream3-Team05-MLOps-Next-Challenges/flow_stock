@@ -51,4 +51,6 @@ if __name__ == "__main__":
         ),
         schedule=(CronSchedule(cron="0 8 * * 1-5", timezone="Asia/Seoul")),
         build=True,
+        retries=3,
+        retry_delay_seconds=60,
     )
