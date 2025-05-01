@@ -22,7 +22,7 @@ def init_kafka_producer() -> Optional[KafkaProducer]:
         producer = KafkaProducer(
             bootstrap_servers=os.getenv("KAFKA_URL", "localhost:9092"),
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-            acks=0,
+            acks=1,
             compression_type='gzip',
             api_version=(2,)
         )
